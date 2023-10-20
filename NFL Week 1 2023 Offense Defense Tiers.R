@@ -1,8 +1,14 @@
 
 # Load R and Import necessary Libraries
+remove.packages("rlang")
+remove.packages("tidyverse")
+remove.packages("nflreadr")
+remove.packages("nflplotR")
+install.packages("rlang")
 install.packages("tidyverse")
 install.packages("nflreadr")
 install.packages("nflplotR")
+install.packages("ggplot2")
 #install.packages("nflfastr")
 
 library(tidyverse)
@@ -68,10 +74,10 @@ ggplot(wk1_off, aes(x = mean_epa, y = success_rate)) +
     x = "EPA per play",
     y = "Success Rate",
     title = "NFL Offensive Performances (Week 1)",
-    caption = "By: Sam Burch  |  Data @nflfastR"
+    caption = "By: Idrees Muhammad Kudaimi  |  Data @nflfastR"
   ) +
   stat_smooth(formula = y ~ x, method = "lm", geom = "line", se = FALSE, color = "gray") +
-  nflplotR::geom_mean_lines(aes(h_var = mean_epa, v_var = success_rate)) +
+  nflplotR::geom_mean_lines(aes(x0 = mean_epa, y0 = success_rate)) +
   nflplotR::geom_nfl_logos(aes(team_abbr = posteam), width = .07, alpha = .7)
 
 ggsave("off_performance_w1.png", width = 16, height = 9, units = "cm")
@@ -98,12 +104,12 @@ ggplot(wk1_def, aes(x = mean_epa, y = success_rate)) +
     x = "EPA per play Allowed",
     y = "Success Rate Allowed",
     title = "NFL Defensive Performances (Week 1)",
-    caption = "By:Sam Burch  |  Data @nflfastR"
+    caption = "By: Idrees Muhammad Kudaimi  |  Data @nflfastR"
   ) +
   scale_x_reverse() +
   scale_y_reverse() +
   stat_smooth(formula = y ~ x, method = 'lm', geom = 'line', se = FALSE, color = "gray") +
-  nflplotR::geom_mean_lines(aes(h_var = mean_epa, v_var = success_rate)) +
+  nflplotR::geom_mean_lines(aes(x0 = mean_epa, y0 = success_rate)) +
   nflplotR::geom_nfl_logos(aes(team_abbr = defteam), width = .07, alpha = .7)
 
 
