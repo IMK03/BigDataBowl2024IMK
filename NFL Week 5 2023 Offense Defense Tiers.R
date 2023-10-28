@@ -59,51 +59,51 @@ pbp_22 |>
 
 pbp_23 = load_pbp(2023)
 
-wk1_off = pbp_23 |> 
-  filter(week == 1, !is.na(yards_gained), (pass == 1 | rush == 1)) |> 
+wk5_off = pbp_23 |> 
+  filter(week == 5, !is.na(yards_gained), (pass == 1 | rush == 1)) |> 
   group_by(posteam) |> 
   summarise(mean_epa = mean(epa),
             success_rate = mean(success),
             ypa = mean(yards_gained),
             plays = n()) |> 
   arrange(-mean_epa)
-wk1_off
+wk5_off
 
-ggplot(wk1_off, aes(x = mean_epa, y = success_rate)) +
+ggplot(wk5_off, aes(x = mean_epa, y = success_rate)) +
   labs(
     x = "EPA per play",
     y = "Success Rate",
-    title = "NFL Offensive Performances (Week 1)",
+    title = "NFL Offensive Performances (Week 5)",
     caption = "By: Idrees Muhammad Kudaimi  |  Data @nflfastR"
   ) +
   stat_smooth(formula = y ~ x, method = "lm", geom = "line", se = FALSE, color = "gray") +
   nflplotR::geom_mean_lines(aes(x0 = mean_epa, y0 = success_rate)) +
   nflplotR::geom_nfl_logos(aes(team_abbr = posteam), width = .07, alpha = .7)
 
-ggsave("off_performance_w1.png", width = 16, height = 9, units = "cm")
+ggsave("off_performance_w5.png", width = 16, height = 9, units = "cm")
 
 
 
 # Defensive Performances
 
-wk1_def = pbp_23 |> 
-  filter(week == 1, !is.na(yards_gained), (pass == 1 | rush == 1)) |> 
+wk5_def = pbp_23 |> 
+  filter(week == 5, !is.na(yards_gained), (pass == 1 | rush == 1)) |> 
   group_by(defteam) |> 
   summarise(mean_epa = mean(epa),
             success_rate = mean(success),
             ypa = mean(yards_gained),
             plays = n()) |> 
   arrange(mean_epa)
-wk1_def
+wk5_def
 
 
 # Final Plots
 
-ggplot(wk1_def, aes(x = mean_epa, y = success_rate)) +
+ggplot(wk5_def, aes(x = mean_epa, y = success_rate)) +
   labs(
     x = "EPA per play Allowed",
     y = "Success Rate Allowed",
-    title = "NFL Defensive Performances (Week 1)",
+    title = "NFL Defensive Performances (Week 5)",
     caption = "By: Idrees Muhammad Kudaimi  |  Data @nflfastR"
   ) +
   scale_x_reverse() +
@@ -113,7 +113,7 @@ ggplot(wk1_def, aes(x = mean_epa, y = success_rate)) +
   nflplotR::geom_nfl_logos(aes(team_abbr = defteam), width = .07, alpha = .7)
 
 
-ggsave("def_performance_w1.png", width = 16, height = 9, units = "cm")
+ggsave("def_performance_w5.png", width = 16, height = 9, units = "cm")
 
 
 
