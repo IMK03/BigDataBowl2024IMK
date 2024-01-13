@@ -1,0 +1,408 @@
+
+# Install and load required libraries
+install.packages("dplyr")
+install.packages("readr")
+install.packages("na.tools")
+install.packages("rlang")
+install.packages("tidyverse")
+install.packages("nflreadr")
+install.packages("nflplotR")
+install.packages("ggplot2")
+install.packages("nflfastR")
+install.packages("ggimage")
+install.packages("gt")
+install.packages("gtExtras")
+install.packages("nflverse")
+
+setwd("C:/Users/imksy/Downloads/nfl-big-data-bowl-2024")
+
+
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(ggrepel)
+library(nflfastR)
+library(na.tools)
+library(ggimage)
+library(rlang)
+library(nflreadr)
+library(nflplotR)
+library(ggimage)
+library(gt)
+library(gtExtras)
+library(nflverse)
+
+#First the chart of tackle_efficiency vs expected points saved
+
+#Second, consistency in tackling (all non TFL and FF and sack tackles) vs explosiveness in tackling (splash plays, onyl TFL and FF and sacks)
+
+#Thirdly, individual vs assists
+
+#Fourth, pass vs run
+
+#Finally, Aggregate Data
+
+# Read game data
+game_data <- read_csv("games.csv")
+
+# Read play data
+play_data <- read_csv("plays.csv")
+
+# Read player data
+player_data <- read_csv("players.csv")
+
+# Read tackles data
+tackles_data <- read_csv("tackles.csv")
+
+# Create a vector of file names
+file_names <- c(
+  "tracking_week_1.csv",
+  "tracking_week_2.csv",
+  "tracking_week_3.csv",
+  "tracking_week_4.csv",
+  "tracking_week_5.csv",
+  "tracking_week_6.csv",
+  "tracking_week_7.csv",
+  "tracking_week_8.csv",
+  "tracking_week_9.csv"
+)
+
+# Read and combine all CSV files
+tracking_data <- bind_rows(lapply(file_names, read_csv))
+
+# View the combined dataset
+head(tracking_data)
+
+### Tackling Prowess (EPA saved vs tackle efficiency)
+
+
+# Filter for successful tackles and merge with play_data
+successful_tackles <- tackles_data %>%
+  left_join(play_data, by = c("gameId", "playId")) %>%
+  left_join(player_data, by = "nflId")
+
+# Calculate Tackler Efficiency for each player
+tackle_efficiency <- successful_tackles %>%
+  group_by(nflId, displayName, position) %>%
+  summarise(
+    missed_tackles = sum(pff_missedTackle),
+    tackles_successful = sum(tackle),
+    assists = sum(assist),
+    total_tackles_attempted = (missed_tackles + tackles_successful),
+    average_tackle_efficiency = ifelse(total_tackles_attempted > 0, tackles_successful / total_tackles_attempted, 0),
+    average_expectedPointsSaved = sum(
+      case_when(
+        tackle == 1 & pff_missedTackle == 0 ~ expectedPointsAdded,
+        tackle == 0 & pff_missedTackle == 1 ~ -expectedPointsAdded,
+        TRUE ~ 0), na.rm = TRUE) / total_tackles_attempted
+    , .groups = 'drop') %>%
+  filter(total_tackles_attempted >= 20, position %in% c("ILB", "MLB"))  # Filter by position
+
+# Calculate medians
+median_x <- median(tackle_efficiency$average_tackle_efficiency)
+median_y <- median(-tackle_efficiency$average_expectedPointsSaved)
+
+# Create a new variable for quadrant using medians
+tackle_efficiency <- tackle_efficiency %>%
+  mutate(quadrantA = case_when(
+    average_tackle_efficiency >= median_x & -average_expectedPointsSaved >= median_y ~ "Efficient tackler, saves lots of points",
+    average_tackle_efficiency < median_x & -average_expectedPointsSaved >= median_y ~ "Inefficient tackler, saves lots of points",
+    average_tackle_efficiency >= median_x & -average_expectedPointsSaved < median_y ~ "Efficient tackler, doesn't save lots of points",
+    average_tackle_efficiency < median_x & -average_expectedPointsSaved < median_y ~ "Inefficient tackler, doesn't save a lot of points",
+    TRUE ~ NA_character_
+  ))
+
+
+# Create Scatter Plot with Labels and Custom Axis Scales
+ggplot(tackle_efficiency, aes(x = average_tackle_efficiency, y = -average_expectedPointsSaved, size = total_tackles_attempted)) +
+  geom_point(aes(color = quadrantA)) + #color is quadrants
+  geom_smooth(method = "lm", se = FALSE, color = "blue", linetype = "dashed") +  # Add linear trendline
+  geom_text_repel(aes(label = displayName), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 100) +  # Adjust max.overlaps
+  labs(title = "NFL 2022 Weeks 1-9 ILB Tackling Prowess",
+       x = "Tackler Efficiency (Individual Attempts Only)",
+       y = "Average Expected Points Saved per Solo Tackle Attempt") +
+  theme(legend.position = "none") +  # Remove the legend
+  scale_x_continuous(breaks = seq(0.5, 1, 0.1)) +  # Set x-axis breaks from 0 to 1 with 0.1 intervals
+  scale_y_continuous(breaks = seq(-1, 1, 0.1)) +  # Set y-axis breaks
+  scale_size_continuous(range = c(2, 10)) +  # Adjust the size range of points
+  geom_vline(xintercept = median_x, linetype = "dotted", color = "red") +
+  geom_hline(yintercept = median_y, linetype = "dotted", color = "red")
+
+### Assist rate and individual rate and combined rate
+
+tackle_efficiency <- left_join(tackle_efficiency, snap_count_data, by = c("nflId" = "nflId"))
+
+
+# Calculate individual tackle frequency
+individual_tackle_frequency <- tackle_efficiency %>%
+  group_by(nflId, displayName.x, position, snap_count) %>%
+  summarise(
+    individual_tackle_frequency = sum(tackles_successful) / snap_count
+  )
+
+# Calculate assist tackle frequency
+assist_tackle_frequency <- tackle_efficiency %>%
+  group_by(nflId, displayName.x, position, snap_count) %>%
+  summarise(
+    assist_tackle_frequency = sum(assists) / snap_count
+  )
+
+# Combine individual and assist tackle frequencies
+total_tackle_frequency <- left_join(individual_tackle_frequency, assist_tackle_frequency, by = c("nflId", "displayName.x", "position", "snap_count")) %>%
+  mutate(total_tackle_frequency = individual_tackle_frequency + assist_tackle_frequency)
+# Calculate median or mean for x and y axis
+median_x <- median(total_tackle_frequency$individual_tackle_frequency, na.rm = TRUE)
+median_y <- median(total_tackle_frequency$total_tackle_frequency, na.rm = TRUE)
+
+# Create a new variable for quadrant
+total_tackle_frequency <- total_tackle_frequency %>%
+  mutate(quadrantB = case_when(
+    individual_tackle_frequency >= median_x & total_tackle_frequency >= median_y ~ "Involved in a lot of tackles, often first to ball",
+    individual_tackle_frequency < median_x & total_tackle_frequency >= median_y ~ "Involved in a lot of tackles, not often first to ball",
+    individual_tackle_frequency >= median_x & total_tackle_frequency < median_y ~ "Involved in less tackles, often first to ball",
+    individual_tackle_frequency < median_x & total_tackle_frequency < median_y ~ "Involved in less tackles, not often first to ball",
+    TRUE ~ NA_character_
+  ))
+# Plot the graph with lines at median of x and y axes
+ggplot(total_tackle_frequency, aes(x = individual_tackle_frequency, y = total_tackle_frequency, size = snap_count)) +
+  geom_point(aes(color = quadrantB)) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue", linetype = "dashed") +  # Add linear trendline
+  geom_text_repel(aes(label = displayName.x), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 1000) +
+  geom_vline(xintercept = median_x, linetype = "dashed", color = "black") +
+  geom_hline(yintercept = median_y, linetype = "dashed", color = "black") +
+  labs(title = "Nose for the Football",
+       x = "Individual Tackle Frequency",
+       y = "Total Tackle Frequency (Assists + Solo)") +
+  theme_minimal() +
+  scale_x_continuous(limits = c(0.05, 0.15), breaks = seq(0.05, 0.15, 0.02)) +
+  scale_y_continuous(limits = c(0.1, 0.25), breaks = seq(0.1, 0.25, 0.03)) +
+  theme(legend.position = "none")
+
+
+### Tackle value nonexplosive plays
+
+# Calculate medians
+median_x3 <- median(mapped_nonexplosive_tackle$tackle_frequency)
+median_y3 <- median(mapped_nonexplosive_tackle$avg_normalized_tackle_value)
+
+# Create a new variable for quadrant using medians
+mapped_nonexplosive_tackle <- mapped_nonexplosive_tackle %>%
+  mutate(quadrantC = case_when(
+    tackle_frequency >= median_x3 & avg_normalized_tackle_value >= median_y3 ~ "Make a lot of valuable nonexplosive tackles",
+    tackle_frequency < median_x3 & avg_normalized_tackle_value >= median_y3 ~ "Make little of valauable nonexplosive tackles",
+    tackle_frequency >= median_x3 & avg_normalized_tackle_value < median_y3 ~ "Make a lot of less valuable nonexplosive tackles",
+    tackle_frequency < median_x3 & avg_normalized_tackle_value < median_y3 ~ "Make little of less valuable nonexplosive tackles",
+    TRUE ~ NA_character_
+  ))
+
+# Plot the graph with text repel
+ggplot(mapped_nonexplosive_tackle, aes(x = tackle_frequency, y = avg_normalized_tackle_value)) + #size total tckles attempted not working
+  geom_point(aes(color = quadrantC)) + #color is quadrants
+  #geom_smooth(method = "lm", se = FALSE, color = "blue", linetype = "dashed") +  # Add linear trendline
+  geom_text_repel(aes(label = displayName.x), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 100) +
+  labs(title = "Butkus Tackle Value, Nonexplosive Plays",
+       x = "Tackle Frequency, nonexplosive plays",
+       y = "Average Tackle Value, -0.5 to 0.5") +
+  theme_minimal() +
+  scale_x_continuous(limits = c(0.03, 0.12), breaks = seq(0.03, 0.12, 0.03)) +
+  scale_y_continuous(limits = c(0.1, 0.25), breaks = seq(0, 0.4, 0.03)) +
+  geom_vline(xintercept = median_x3, linetype = "dotted", color = "purple") +
+  geom_hline(yintercept = median_y3, linetype = "dotted", color = "purple")
+
+### tackles on defensive explosive plays FF and TFL
+
+# Calculate medians
+median_x2 <- median(mapped_explosive_tackle$tackle_frequency_exp, na.rm = TRUE)
+median_y2 <- median(mapped_explosive_tackle$avg_normalized_tackle_value, na.rm = TRUE)
+
+# Create a new variable for quadrant using medians
+mapped_explosive_tackle <- mapped_explosive_tackle %>%
+  mutate(quadrantD = case_when(
+    tackle_frequency_exp >= median_x2 & avg_normalized_tackle_value_exp >= median_y2 ~ "Many big tackles, more valuable tackles",
+    tackle_frequency_exp < median_x2 & avg_normalized_tackle_value_exp >= median_y2 ~ "Less big tackles, more valuable tackles",
+    tackle_frequency_exp >= median_x2 & avg_normalized_tackle_value_exp < median_y2 ~ "Many big tackles, less valuable tackles",
+    tackle_frequency_exp < median_x2 & avg_normalized_tackle_value_exp < median_y2 ~ "Less big tackles, less valuable tackles",
+    TRUE ~ NA_character_
+  ))
+
+# Add other layers and settings
+ggplot(mapped_explosive_tackle, aes(x = tackle_frequency_exp, y = avg_normalized_tackle_value)) +
+  geom_point(aes(color = quadrantD)) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue", linetype = "dashed") +  # Add linear trendline
+  geom_text_repel(aes(label = displayName.x), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 1000) +
+  labs(title = "Butkus Tackle Value, Big Plays",
+       x = "Explosive Tackle Frequency",
+       y = "Average Tackle Value, scaled 0.5 to 1") +
+  theme_minimal() +
+  scale_x_continuous(limits = c(0, 0.035), breaks = seq(0, 0.035, 0.007)) +
+  scale_y_continuous(limits = c(0.55, 0.70), breaks = seq(0.55, 0.70, 0.03)) +
+  geom_vline(xintercept = median_x2, linetype = "dotted", color = "green") +
+  geom_hline(yintercept = median_y2, linetype = "dotted", color = "green")
+
+### Offensive explosive play tackles
+
+# Calculate medians
+median_x1 <- median(explosive_tackle_by_player_bad$tackle_frequency_bad)
+median_y1 <- median(explosive_tackle_by_player_bad$avg_normalized_tackle_value)
+
+# Create a new variable for quadrants
+explosive_tackle_by_player_bad <- explosive_tackle_by_player_bad %>%
+  mutate(quadrantE = case_when(
+    tackle_frequency_bad >= median_x1 & avg_normalized_tackle_value >= median_y1 ~ "High rate of tackles being on explosive plays, less explosive plays",
+    tackle_frequency_bad < median_x1 & avg_normalized_tackle_value >= median_y1 ~ "Low rate of tackles being on explosive  plays, less explosive plays",
+    tackle_frequency_bad < median_x1 & avg_normalized_tackle_value < median_y1 ~ "Low rate of tackles being on explosive plays, more explosive plays",
+    tackle_frequency_bad >= median_x1 & avg_normalized_tackle_value < median_y1 ~ "High rate of tackles being on explosive plays, more explosive plays",
+    TRUE ~ "Undefined"
+  ))
+
+# Plot the graph with text repel
+ggplot(explosive_tackle_by_player_bad, aes(x = tackle_frequency_bad, y = avg_normalized_tackle_value)) +
+  geom_point(aes(color = quadrantE)) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue", linetype = "dashed") +  # Add linear trendline
+  geom_text_repel(aes(label = displayName), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 1000) +
+  labs(title = "Butkus Tackle Value, Offensive Explosive Plays",
+       x = "Tackle Frequency",
+       y = "Average Tackle Value, scaled -0.5 to -1") +
+  theme_minimal() +
+  scale_x_continuous(limits = c(0, 0.024), breaks = seq(0, 0.024, 0.003)) +
+  scale_y_continuous(limits = c(-0.85, -0.55), breaks = seq(-0.85,-0.55, 0.05)) +
+  geom_vline(xintercept = median_x1, linetype = "dotted", color = "blue") +
+  geom_hline(yintercept = median_y1, linetype = "dotted", color = "blue") 
+
+
+
+
+
+
+
+### Aggregate
+
+library(dplyr)
+
+# Assuming each dataset has a common identifier like 'nflId'
+common_key <- "nflId"
+
+
+# Combine datasets into aggregate_data
+aggregate_data <- left_join(tackle_efficiency, total_tackle_frequency, by = common_key) %>%
+  left_join(mapped_explosive_tackle, by = common_key) %>%
+  left_join(mapped_nonexplosive_tackle, by = common_key) %>%
+  left_join(explosive_tackle_by_player_bad, by = common_key) %>% 
+  select(
+    nflId,
+    displayName,
+    position,
+    missed_tackles,
+    tackles_successful,
+    assists,
+    total_tackles_attempted,
+    average_tackle_efficiency,
+    average_expectedPointsSaved,
+    quadrantA,
+    snap_count.y.x,
+    individual_tackle_frequency,
+    assist_tackle_frequency,
+    total_tackle_frequency,
+    quadrantB,
+    avg_normalized_tackle_value,
+    total_nonexplosive_tackles,
+    tackle_frequency,
+    quadrantC,
+    avg_normalized_tackle_value_exp,
+    total_explosive_tackles,
+    tackle_frequency_exp,
+    quadrantD,
+    avg_normalized_tackle_value_bad,
+    total_explosive_tackles_bad,
+    tackle_frequency_bad,
+    quadrantE
+  )
+
+# View the structure of the aggregated dataset
+str(aggregate_data)
+
+# Assuming player_data has 'nflId', 'displayName', and 'position' columns
+common_player_key <- c("nflId", "displayName", "position")
+
+# Fill in NA values in aggregate_data using player_data
+aggregate_data <- aggregate_data %>%
+  left_join(player_data %>% select(all_of(common_player_key)), by = "nflId")
+
+# If there are still NA values after the left join, you can use coalesce to prioritize non-NA values
+aggregate_data <- aggregate_data %>%
+  mutate(
+    displayName = coalesce(displayName.x, displayName.y),
+    position = coalesce(position.x, position.y)
+  ) %>%
+  select(-starts_with("displayName."), -starts_with("position."))
+
+# Define weights
+weights <- c(3, -5, 1, 0.5, 2, -3, 1, 2, 5, 2, -5)
+
+# Calculate composite score
+aggregate_data <- aggregate_data %>%
+  mutate(
+    composite_LB_score = (
+      weights[1] * coalesce(average_tackle_efficiency, 0) +
+        weights[2] * coalesce(average_expectedPointsSaved, 0) +
+        weights[3] * coalesce(individual_tackle_frequency, 0) +
+        weights[4] * coalesce(assist_tackle_frequency, 0) +
+        weights[5] * coalesce(total_tackle_frequency, 0) +
+        weights[6] * coalesce(avg_normalized_tackle_value, 0) +
+        weights[7] * coalesce(tackle_frequency, 0) +
+        weights[8] * coalesce(avg_normalized_tackle_value_exp, 0) +
+        weights[9] * coalesce(tackle_frequency_exp, 0) +
+        weights[10] * coalesce(avg_normalized_tackle_value_bad, 0) +
+        weights[11] * coalesce(tackle_frequency_bad, 0)
+    )
+  ) %>%
+  mutate(
+    normalized_composite_LB_score = scales::rescale(composite_LB_score, to = c(0, 1))
+  ) 
+
+# Columns to normalize and include in the composite
+columns_to_normalize <- c(
+  "average_tackle_efficiency",
+  "average_expectedPointsSaved",
+  "individual_tackle_frequency",
+  "assist_tackle_frequency",
+  "total_tackle_frequency",
+  "avg_normalized_tackle_value",
+  "tackle_frequency",
+  "avg_normalized_tackle_value_exp",
+  "tackle_frequency_exp",
+  "avg_normalized_tackle_value_bad",
+  "tackle_frequency_bad"
+)
+
+# Normalize specified columns
+normalized_data <- aggregate_data %>%
+  mutate(across(all_of(columns_to_normalize), scales::rescale))
+
+# Define weights
+weights <- c(1,-1,1,1,1,-1,1,1,1,1,-1)
+
+# Calculate composite score
+normalized_data <- normalized_data %>%
+  mutate(
+    normalized_added_composite = (
+      weights[1] * coalesce(average_tackle_efficiency, 0) +
+        weights[2] * coalesce(average_expectedPointsSaved, 0) +
+        weights[3] * coalesce(individual_tackle_frequency, 0) +
+        weights[4] * coalesce(assist_tackle_frequency, 0) +
+        weights[5] * coalesce(total_tackle_frequency, 0) +
+        weights[6] * coalesce(avg_normalized_tackle_value, 0) +
+        weights[7] * coalesce(tackle_frequency, 0) +
+        weights[8] * coalesce(avg_normalized_tackle_value_exp, 0) +
+        weights[9] * coalesce(tackle_frequency_exp, 0) +
+        weights[10] * coalesce(avg_normalized_tackle_value_bad, 0) +
+        weights[11] * coalesce(tackle_frequency_bad, 0)
+    )
+  ) %>%
+  mutate(
+    normalized_added_composite = scales::rescale(normalized_added_composite, to = c(0, 1))
+  )
+
+# View the results
+head(aggregate_data)
