@@ -1,0 +1,418 @@
+library(dplyr)
+library(ggplot2)
+
+# Join Tackles data with Play data to get relevant information
+tackles_with_play_info <- left_join(tackles_data, play_data, by = c("gameId", "playId"))
+
+# Filter out plays where playNullifiedByPenalty is Y, and where penaltyYards is not NA
+tackles_with_play_info <- tackles_with_play_info %>%
+  filter((playNullifiedByPenalty != "Y"))
+
+tackles_with_play_info <- tackles_with_play_info %>%
+  filter((is.na(penaltyYards)) | (penaltyYards == 0))
+
+tackles_with_play_info <- tackles_with_play_info %>%
+  filter((pff_missedTackle != 1))
+
+tackles_with_play_info <- tackles_with_play_info %>%
+  filter((forcedFumble != 1))
+
+tackles_with_play_info <- tackles_with_play_info %>%
+  filter((playResult >= 0))
+
+tackles_with_play_info <- tackles_with_play_info %>%
+  filter((passResult < 20 & !(is.na(passResult))) | (is.na(passResult) & playResult < 10))
+
+# Join with Tracking data to get additional player tracking information
+tackles_with_tracking_info <- left_join(tackles_with_play_info, tracking_data, by = c("gameId", "playId", "nflId"))
+
+# Join with Player data to get player positions
+tackles_with_positions <- left_join(tackles_with_tracking_info, player_data %>% select(nflId, position), by = "nflId")
+
+# Join with Game data to map home and visiting teams
+tackles_with_team_info <- left_join(tackles_with_positions, game_data %>% select(gameId, homeTeamAbbr, visitorTeamAbbr), by = "gameId") %>%
+  mutate(
+    defensiveTeam = ifelse(possessionTeam == homeTeamAbbr, visitorTeamAbbr, homeTeamAbbr),
+    win_prob_added = ifelse(possessionTeam == homeTeamAbbr, visitorTeamWinProbilityAdded, homeTeamWinProbabilityAdded)
+  )
+
+# Filter for ILB or MLB players
+filtered_tackles <- tackles_with_team_info %>%
+  filter(position %in% c("ILB", "MLB"))
+
+
+
+# Check if 'dis' column exists in filtered_tackles
+if (!"dis" %in% colnames(filtered_tackles)) {
+  stop("Required variable 'dis' not found in filtered_tackles.")
+}
+
+
+
+# Calculate Nonexplosive Tackle Value for each play separately and remove duplicates
+nonexplosive_Butkus_tackle_value <- filtered_tackles %>%
+  group_by(gameId, playId, nflId, defensiveTeam, possessionTeam) %>%
+  summarise(
+    win_prob_added = last(win_prob_added),
+    expected_points_added = last(expectedPointsAdded),
+    yards_gained = last(playResult),
+    tackle_range = sqrt((last(x) - first(x))^2 + (last(y) - first(y))^2),
+    tackle_value = (0.15*win_prob_added) - (0.30*expected_points_added) - (0.40*yards_gained) + (0.15*tackle_range)
+  ) 
+
+
+
+# Normalize the nonexplosive_tackle_value column to a scale of -1 to 1
+nonexplosive_Butkus_tackle_value$normalized_tackle_value <- scales::rescale(nonexplosive_Butkus_tackle_value$tackle_value, 
+                                                                            to = c(-0.5, 0.5))
+
+# View the results
+head(nonexplosive_Butkus_tackle_value)
+
+
+library(dplyr)
+
+
+# Join Tackles data with Play data to get relevant information
+explosive_tackles <- left_join(tackles_data, play_data, by = c("gameId", "playId"))
+
+# Filter out plays where playNullifiedByPenalty is Y, and where penaltyYards is not NA
+explosive_tackles <- explosive_tackles %>%
+  filter((playNullifiedByPenalty != "Y"))
+
+explosive_tackles <- explosive_tackles %>%
+  filter((is.na(penaltyYards)) | (penaltyYards == 0))
+
+explosive_tackles <- explosive_tackles %>%
+  filter((pff_missedTackle != 1))
+
+explosive_tackles <- explosive_tackles %>%
+  filter((forcedFumble == 1) | (playResult < 0)) #plays where tackler forces a fumble or loss
+
+
+# Join with Tracking data to get additional player tracking information
+explosive_tackles_tracking <- left_join(explosive_tackles, tracking_data, by = c("gameId", "playId", "nflId"))
+
+# Join with Player data to get player positions
+explosive_tackles_players <- left_join(explosive_tackles_tracking, player_data %>% select(nflId, position), by = "nflId")
+
+# Join with Game data to map home and visiting teams
+explosive_tackles_teams <- left_join(explosive_tackles_players, game_data %>% select(gameId, homeTeamAbbr, visitorTeamAbbr), by = "gameId") %>%
+  mutate(
+    defensiveTeam = ifelse(possessionTeam == homeTeamAbbr, visitorTeamAbbr, homeTeamAbbr),
+    win_prob_added = ifelse(possessionTeam == homeTeamAbbr, visitorTeamWinProbilityAdded, homeTeamWinProbabilityAdded)
+  )
+
+# Filter for ILB or MLB players
+explosive_tackles_LB <- explosive_tackles_teams %>%
+  filter(position %in% c("ILB", "MLB"))
+
+
+# Check if 'dis' column exists in filtered_tackles
+if (!"dis" %in% colnames(explosive_tackles_LB)) {
+  stop("Required variable 'dis' not found in filtered_tackles.")
+}
+
+# Calculate Nonexplosive Tackle Value for each play separately and remove duplicates
+explosive_Butkus_tackle_value <- explosive_tackles_LB %>%
+  group_by(gameId, playId, nflId, defensiveTeam, possessionTeam) %>%
+  summarise(
+    win_prob_added = last(win_prob_added),
+    expected_points_added = last(expectedPointsAdded),
+    yards_gained = last(playResult),
+    tackle_range = sqrt((last(x) - first(x))^2 + (last(y) - first(y))^2),
+    tackle_value = (0.15*win_prob_added) - (0.30*expected_points_added) - (0.40*yards_gained) + (0.15*tackle_range)
+  ) 
+
+# Normalize the nonexplosive_tackle_value column to a scale of -1 to 1
+explosive_Butkus_tackle_value$normalized_tackle_value <- scales::rescale(explosive_Butkus_tackle_value$tackle_value, 
+                                                                         to = c(0.5, 1))
+library(dplyr)
+
+
+# Join Tackles data with Play data to get relevant information
+offensive_explosive_plays <- left_join(tackles_data, play_data, by = c("gameId", "playId"))
+
+# Filter out plays where playNullifiedByPenalty is Y, and where penaltyYards is not NA
+offensive_explosive_plays <- offensive_explosive_plays %>%
+  filter((playNullifiedByPenalty != "Y"))
+
+offensive_explosive_plays <- offensive_explosive_plays %>%
+  filter((is.na(penaltyYards)) | (penaltyYards == 0))
+
+offensive_explosive_plays <- offensive_explosive_plays %>%
+  filter((pff_missedTackle != 1))
+
+offensive_explosive_plays <- offensive_explosive_plays %>%
+  filter((forcedFumble != 1))
+
+offensive_explosive_plays <- offensive_explosive_plays %>%
+  filter((passLength >= 20) | (is.na(passLength)) & (playResult >= 10))
+
+
+# Join with Tracking data to get additional player tracking information
+offensive_explosive_players <- left_join(offensive_explosive_plays, tracking_data, by = c("gameId", "playId", "nflId"))
+
+# Join with Player data to get player positions
+offensive_explosive_positions <- left_join(offensive_explosive_players, player_data %>% select(nflId, position), by = "nflId")
+
+# Join with Game data to map home and visiting teams
+offensive_explosive_teams <- left_join(offensive_explosive_positions, game_data %>% select(gameId, homeTeamAbbr, visitorTeamAbbr), by = "gameId") %>%
+  mutate(
+    defensiveTeam = ifelse(possessionTeam == homeTeamAbbr, visitorTeamAbbr, homeTeamAbbr),
+    win_prob_added = ifelse(possessionTeam == homeTeamAbbr, visitorTeamWinProbilityAdded, homeTeamWinProbabilityAdded)
+  )
+
+# Filter for ILB or MLB players
+offensive_explosive_LBs <- offensive_explosive_teams %>%
+  filter(position %in% c("ILB", "MLB"))
+
+
+# Check if 'dis' column exists in filtered_tackles
+if (!"dis" %in% colnames(offensive_explosive_LBs)) {
+  stop("Required variable 'dis' not found in filtered_tackles.")
+}
+
+# Calculate Tackle Value for each play separately and remove duplicates where offense has explosive play
+explosive_Butkus_tackle_value_bad <- offensive_explosive_LBs %>%
+  group_by(gameId, playId, nflId, defensiveTeam, possessionTeam) %>%
+  summarise(
+    win_prob_added = last(win_prob_added),
+    expected_points_added = last(expectedPointsAdded),
+    yards_gained = last(playResult),
+    tackle_range = sqrt((last(x) - first(x))^2 + (last(y) - first(y))^2),
+    tackle_value = (0.15*win_prob_added) - (0.30*expected_points_added) - (0.40*yards_gained) + (0.15*tackle_range)
+  ) 
+
+# Normalize the nonexplosive_tackle_value column to a scale of -1 to 1
+explosive_Butkus_tackle_value_bad$normalized_tackle_value <- scales::rescale(explosive_Butkus_tackle_value_bad$tackle_value, 
+                                                                         to = c(-1, -0.5))
+
+# View the results
+head(explosive_Butkus_tackle_value_bad)
+
+
+
+# Assuming you have the necessary dataframes loaded: tackle_value, play_data, tackles_data, and player_data
+
+# Merge tackle_value with play_data on gameId and playId
+#combination <- left_join(tackle_value, play_data, by = c("gameId", "playId"))
+
+# Merge with tackles_data on gameId and playId
+#combination <- left_join(combination, tackles_data, by = c("gameId", "playId"))
+
+# Merge with player_data on nflId
+#combination <- left_join(combination, player_data, by = "nflId")
+
+#combination <- combination %>%
+ # filter((pff_missedTackle != 1))
+
+# View the combined dataset
+#head(combination)
+
+
+#Graph of average tackle value nonexplosive vs nonexplosive tackles frequency
+library(ggplot2)
+library(ggrepel)
+
+# Filter players with 20 or more tackles from nonexplosive_Butkus_tackle_value
+nonexplosive_tackle_by_player <- nonexplosive_Butkus_tackle_value %>%
+  group_by(nflId) %>%
+  summarise(
+    avg_nonexplosive_tackle_value = mean(tackle_value),
+    normalized_avg_nonexplosive_tackle_value = scales::rescale(mean(tackle_value)),
+    total_attempts = n()
+  ) %>%
+  left_join(player_data, by = "nflId") %>%
+  left_join(tackle_efficiency %>% filter(position %in% c("ILB", "MLB") & total_tackles_attempted >= 20), by = "nflId")
+nonexplosive_tackle_by_player <- inner_join(nonexplosive_tackle_by_player, tackle_efficiency, by = "nflId")
+
+# Join with existing nonexplosive_tackle_by_player (if it already exists)
+if (exists("nonexplosive_tackle_by_player")) {
+  nonexplosive_tackle_by_player <- left_join(nonexplosive_tackle_by_player, nonexplosive_tackle_by_player, by = c("nflId" = "nflId"))
+}
+
+# Calculate snap count for each player
+snap_count_data <- tracking_data %>%
+  filter(frameId == 1) %>%
+  group_by(nflId, displayName) %>%
+  summarise(snap_count = n())
+
+# Join snap count data with nonexplosive_Butkus_tackle_value
+nonexplosive_tackle_with_snap_count <- left_join(nonexplosive_Butkus_tackle_value, snap_count_data, by = "nflId")
+
+# Calculate total nonexplosive tackles by player
+nonexplosive_tackle_by_player <- nonexplosive_tackle_with_snap_count %>%
+  group_by(nflId, displayName, snap_count) %>%
+  summarise(
+    avg_normalized_tackle_value = mean(normalized_tackle_value, na.rm = TRUE),
+    total_nonexplosive_tackles = sum(!is.na(tackle_value & tackle_value >= 0)))
+
+# Calculate tackle frequency
+nonexplosive_tackle_by_player <- nonexplosive_tackle_by_player %>%
+  mutate(tackle_frequency = total_nonexplosive_tackles / snap_count)
+
+# Assuming there's a common identifier, adjust the key accordingly
+common_key <- "nflId"
+# Inner join nonexplosive_tackle_by_player with the top 50 players from tackle_efficiency
+mapped_nonexplosive_tackle <- inner_join(
+  nonexplosive_tackle_by_player,
+  tackle_efficiency,
+  by = common_key
+)
+
+# Calculate medians
+median_x3 <- median(mapped_nonexplosive_tackle$tackle_frequency)
+median_y3 <- median(mapped_nonexplosive_tackle$avg_normalized_tackle_value)
+
+# Create a new variable for quadrant using medians
+mapped_nonexplosive_tackle <- mapped_nonexplosive_tackle %>%
+  mutate(quadrantC = case_when(
+    tackle_frequency >= median_x3 & avg_normalized_tackle_value >= median_y3 ~ "Make a lot of valuable nonexplosive tackles",
+    tackle_frequency < median_x3 & avg_normalized_tackle_value >= median_y3 ~ "Make little of valauable nonexplosive tackles",
+    tackle_frequency >= median_x3 & avg_normalized_tackle_value < median_y3 ~ "Make a lot of less valuable nonexplosive tackles",
+    tackle_frequency < median_x3 & avg_normalized_tackle_value < median_y3 ~ "Make little of less valuable nonexplosive tackles",
+    TRUE ~ NA_character_
+  ))
+
+# Plot the graph with text repel
+ggplot(mapped_nonexplosive_tackle, aes(x = tackle_frequency, y = avg_normalized_tackle_value, size = total_nonexplosive_tackles)) +
+  geom_point(aes(color = quadrantC)) +
+  geom_text_repel(aes(label = displayName.x), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 1000) +
+  labs(title = "Butkus Tackle Value, Nonexplosive Plays",
+       x = "Tackle Frequency, nonexplosive plays",
+       y = "Average Tackle Value, -0.5 to 0.5") +
+  theme_minimal() +
+  scale_x_continuous(limits = c(0.03, 0.15), breaks = seq(0.03, 0.15, 0.03)) +
+  scale_y_continuous(limits = c(-0.2, 0), breaks = seq(-0.2, 0, 0.05)) +
+  geom_vline(xintercept = median_x3, linetype = "solid", color = "purple") +
+  geom_hline(yintercept = median_y3, linetype = "solid", color = "purple") +
+  theme(legend.position = "none")
+
+
+# Filter players with 20 or more tackles from explosive_Butkus_tackle_value
+explosive_tackle_by_player <- explosive_Butkus_tackle_value %>%
+  group_by(nflId) %>%
+  summarise(
+    avg_explosive_tackle_value = mean(tackle_value),
+    normalized_avg_explosive_tackle_value = scales::rescale(mean(tackle_value)),
+    total_attempts = n()
+  ) %>%
+  left_join(player_data, by = "nflId") %>%
+  left_join(tackle_efficiency %>% filter(position %in% c("ILB", "MLB") & total_tackles_attempted >= 20), by = "nflId")
+
+# Calculate snap count for each player
+snap_count_data_explosive <- tracking_data %>%
+  filter(frameId == 1) %>%
+  group_by(nflId, displayName) %>%
+  summarise(snap_count = n())
+
+# Join snap count data with explosive_Butkus_tackle_value
+explosive_tackle_with_snap_count <- left_join(explosive_Butkus_tackle_value, snap_count_data_explosive, by = "nflId")
+
+# Calculate total explosive tackles by player
+explosive_tackle_by_player <- explosive_tackle_with_snap_count %>%
+  group_by(nflId, displayName, snap_count) %>%
+  summarise(
+    avg_normalized_tackle_value_exp = mean(normalized_tackle_value, na.rm = TRUE),
+    total_explosive_tackles = sum(!is.na(tackle_value & tackle_value >= 0))) #TFL or FF
+
+explosive_tackle_by_player <- explosive_tackle_by_player %>%
+  mutate(tackle_frequency_exp = total_explosive_tackles / snap_count)
+
+# Filter out rows with missing values
+explosive_tackle_by_player <- explosive_tackle_by_player %>%
+  filter(!is.na(avg_normalized_tackle_value_exp) & !is.na(total_explosive_tackles))
+
+# Assuming there's a common identifier, adjust the key accordingly
+common_key <- "nflId"
+# Inner join explosive_tackle_by_player with the top 50 players from tackle_efficiency
+mapped_explosive_tackle <- inner_join(
+  explosive_tackle_by_player,
+  tackle_efficiency,
+  by = common_key
+)
+
+
+# Calculate medians
+median_x2 <- median(mapped_explosive_tackle$tackle_frequency_exp, na.rm = TRUE)
+median_y2 <- median(mapped_explosive_tackle$avg_normalized_tackle_value_exp, na.rm = TRUE)
+
+# Create a new variable for quadrant using medians
+mapped_explosive_tackle <- mapped_explosive_tackle %>%
+  mutate(quadrantD = case_when(
+    tackle_frequency_exp >= median_x2 & avg_normalized_tackle_value_exp >= median_y2 ~ "Many big tackles, more valuable tackles",
+    tackle_frequency_exp < median_x2 & avg_normalized_tackle_value_exp >= median_y2 ~ "Less big tackles, more valuable tackles",
+    tackle_frequency_exp >= median_x2 & avg_normalized_tackle_value_exp < median_y2 ~ "Many big tackles, less valuable tackles",
+    tackle_frequency_exp < median_x2 & avg_normalized_tackle_value_exp < median_y2 ~ "Less big tackles, less valuable tackles",
+    TRUE ~ NA_character_
+  ))
+
+# Add other layers and settings
+ggplot(mapped_explosive_tackle, aes(x = tackle_frequency_exp, y = avg_normalized_tackle_value_exp, size = total_explosive_tackles)) +
+  geom_point(aes(color = quadrantD)) +
+  geom_text_repel(aes(label = displayName.x), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 1000) +
+  labs(title = "Butkus Tackle Value, Big Plays",
+       x = "Explosive Tackle Frequency",
+       y = "Average Tackle Value, scaled 0.5 to 1") +
+  theme_minimal() +
+  scale_x_continuous(limits = c(0, 0.035), breaks = seq(0, 0.035, 0.007)) +
+  scale_y_continuous(limits = c(0.55, 0.70), breaks = seq(0.55, 0.70, 0.03)) +
+  geom_vline(xintercept = median_x2, linetype = "solid", color = "green") +
+  geom_hline(yintercept = median_y2, linetype = "solid", color = "green") +
+  theme(legend.position = "none")
+
+
+# Calculate snap count for each player
+snap_count_data_offensive_explosive <- tracking_data %>%
+  filter(frameId == 1) %>%
+  group_by(nflId, displayName) %>%
+  summarise(snap_count = n())
+
+# Join snap count data with explosive_Butkus_tackle_value_bad
+explosive_tackle_with_snap_count_bad <- left_join(explosive_Butkus_tackle_value_bad, snap_count_data_offensive_explosive, by = "nflId")
+
+# Filter players with 20 or more tackles from explosive_Butkus_tackle_value_bad
+explosive_tackle_by_player_bad <- explosive_Butkus_tackle_value_bad %>%
+  group_by(nflId) %>%
+  summarise(
+    avg_normalized_tackle_value_bad = mean(normalized_tackle_value, na.rm = TRUE),
+    total_explosive_tackles_bad = sum(!is.na(tackle_value & tackle_value >= 0))
+  ) %>%
+  left_join(player_data, by = "nflId") %>%
+  left_join(tackle_efficiency %>% filter(position %in% c("ILB", "MLB") & total_tackles_attempted >= 20 & !(is.na(total_tackles_attempted))), by = "nflId")
+explosive_tackle_by_player_bad <- inner_join(explosive_tackle_by_player_bad, tackle_efficiency, by = "nflId")
+
+# Calculate tackle frequency using the correct dataset
+explosive_tackle_by_player_bad <- explosive_tackle_by_player_bad %>%
+  mutate(tackle_frequency_bad = total_explosive_tackles_bad / snap_count.y)
+
+# Calculate medians
+median_x1 <- median(explosive_tackle_by_player_bad$tackle_frequency_bad)
+median_y1 <- median(explosive_tackle_by_player_bad$avg_normalized_tackle_value_bad)
+
+# Create a new variable for quadrants
+explosive_tackle_by_player_bad <- explosive_tackle_by_player_bad %>%
+  mutate(quadrantE = case_when(
+    tackle_frequency_bad >= median_x1 & avg_normalized_tackle_value_bad >= median_y1 ~ "High rate of tackles being on explosive plays, less explosive plays",
+    tackle_frequency_bad < median_x1 & avg_normalized_tackle_value_bad >= median_y1 ~ "Low rate of tackles being on explosive  plays, less explosive plays",
+    tackle_frequency_bad < median_x1 & avg_normalized_tackle_value_bad < median_y1 ~ "Low rate of tackles being on explosive plays, more explosive plays",
+    tackle_frequency_bad >= median_x1 & avg_normalized_tackle_value_bad < median_y1 ~ "High rate of tackles being on explosive plays, more explosive plays",
+    TRUE ~ "Undefined"
+  ))
+
+# Plot the graph with text repel
+ggplot(explosive_tackle_by_player_bad, aes(x = tackle_frequency_bad, y = avg_normalized_tackle_value_bad, size = total_explosive_tackles_bad)) +
+  geom_point(aes(color = quadrantE)) +
+  geom_text_repel(aes(label = displayName), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 1000) +
+  labs(title = "Butkus Tackle Value, Offensive Explosive Plays",
+       x = "Tackle Frequency",
+       y = "Average Tackle Value, scaled -0.5 to -1") +
+  theme_minimal() +
+  scale_x_continuous(limits = c(0, 0.024), breaks = seq(0, 0.024, 0.003)) +
+  scale_y_continuous(limits = c(-0.85, -0.55), breaks = seq(-0.85,-0.55, 0.05)) +
+  geom_vline(xintercept = median_x1, linetype = "solid", color = "blue") +
+  geom_hline(yintercept = median_y1, linetype = "solid", color = "blue") +
+  theme(legend.position = "none")
+
+##########
