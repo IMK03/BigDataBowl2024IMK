@@ -1,0 +1,65 @@
+library(ggplot2)
+library(ggrepel)
+
+# Join tackle_efficiency with snap_count
+tackle_efficiency <- left_join(tackle_efficiency, snap_count_data, by = c("nflId" = "nflId"))
+
+
+tackle_efficiency <- tackle_efficiency %>%
+  select(
+    nflId,
+    displayName,
+    position, 
+    missed_tackles,
+    assists,
+    average_expectedPointsSaved,
+    average_tackle_efficiency,
+    tackles_successful,
+    total_tackles_attempted,
+    snap_count
+  )
+# Calculate individual tackle frequency
+individual_tackle_frequency <- tackle_efficiency %>%
+  group_by(nflId, displayName, position, snap_count) %>%
+  summarise(
+    individual_tackle_frequency = sum(tackles_successful) / snap_count
+  )
+
+# Calculate assist tackle frequency
+assist_tackle_frequency <- tackle_efficiency %>%
+  group_by(nflId, displayName, position, snap_count) %>%
+  summarise(
+    assist_tackle_frequency = sum(assists) / snap_count
+  )
+
+# Combine individual and assist tackle frequencies
+total_tackle_frequency <- left_join(individual_tackle_frequency, assist_tackle_frequency, by = c("nflId", "displayName", "position", "snap_count")) %>%
+  mutate(total_tackle_frequency = individual_tackle_frequency + assist_tackle_frequency)
+
+# Calculate median or mean for x and y axis
+median_x <- median(total_tackle_frequency$individual_tackle_frequency, na.rm = TRUE)
+median_y <- median(total_tackle_frequency$total_tackle_frequency, na.rm = TRUE)
+
+# Create a new variable for quadrant
+total_tackle_frequency <- total_tackle_frequency %>%
+  mutate(quadrantB = case_when(
+    individual_tackle_frequency >= median_x & total_tackle_frequency >= median_y ~ "Involved in a lot of tackles, often first to ball",
+    individual_tackle_frequency < median_x & total_tackle_frequency >= median_y ~ "Involved in a lot of tackles, not often first to ball",
+    individual_tackle_frequency >= median_x & total_tackle_frequency < median_y ~ "Involved in less tackles, often first to ball",
+    individual_tackle_frequency < median_x & total_tackle_frequency < median_y ~ "Involved in less tackles, not often first to ball",
+    TRUE ~ NA_character_
+  ))
+# Plot the graph with lines at median of x and y axes
+ggplot(total_tackle_frequency, aes(x = individual_tackle_frequency, y = total_tackle_frequency, size = snap_count)) +
+  geom_point(aes(color = quadrantB)) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue", linetype = "dashed") +  # Add linear trendline
+  geom_text_repel(aes(label = displayName), box.padding = 0.5, point.padding = 0.2, size = 2.5, max.overlaps = 1000) +
+  geom_vline(xintercept = median_x, linetype = "dashed", color = "black") +
+  geom_hline(yintercept = median_y, linetype = "dashed", color = "black") +
+  labs(title = "Nose for the Football",
+       x = "Individual Tackle Frequency",
+       y = "Total Tackle Frequency (Assists + Solo)") +
+  theme_minimal() +
+  scale_x_continuous(limits = c(0.05, 0.15), breaks = seq(0.05, 0.15, 0.02)) +
+  scale_y_continuous(limits = c(0.1, 0.25), breaks = seq(0.1, 0.25, 0.03)) +
+  theme(legend.position = "none")
