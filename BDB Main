@@ -32,6 +32,7 @@ library(ggimage)
 library(gt)
 library(gtExtras)
 library(nflverse)
+library(ggrepel)
 
 #First the chart of tackle_efficiency vs expected points saved
 
