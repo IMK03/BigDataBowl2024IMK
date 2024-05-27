@@ -1,4 +1,4 @@
-# RStudioSportsAnalytics
+# BigDataBowl2024IMK
 My file for my big data bowl submission 2024
 
 https://www.kaggle.com/code/idreesmkudaimi/tackle-score-for-ilb-s
